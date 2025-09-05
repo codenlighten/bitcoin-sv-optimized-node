@@ -1,0 +1,240 @@
+# DigitalOcean Kubernetes Deployment for Metamorph Bitcoin SV Node
+# Production-ready deployment with autoscaling and monitoring
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metamorph-bsv
+  labels:
+    app: metamorph
+    environment: production
+
+---
+# ConfigMap for environment variables
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metamorph-config
+  namespace: metamorph-bsv
+data:
+  NETWORK: "mainnet"
+  LOG_LEVEL: "info"
+  METRICS_ENABLED: "true"
+  LEDGER_PORT: "50051"
+  ENGINE_PORT: "50052"
+  SENTINEL_PORT: "8333"
+  API_GATEWAY_PORT: "8080"
+  TELEMETRY_PORT: "9090"
+
+---
+# Secret for sensitive configuration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: metamorph-secrets
+  namespace: metamorph-bsv
+type: Opaque
+stringData:
+  api-key: "your-api-key-here"
+  db-password: "your-db-password-here"
+
+---
+# Metamorph Main Service Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metamorph-node
+  namespace: metamorph-bsv
+  labels:
+    app: metamorph-node
+    component: core
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: metamorph-node
+  template:
+    metadata:
+      labels:
+        app: metamorph-node
+        component: core
+    spec:
+      containers:
+      - name: metamorph
+        image: metamorph-demo:latest
+        ports:
+        - containerPort: 50051
+          name: ledger-grpc
+        - containerPort: 50052
+          name: engine-grpc
+        - containerPort: 8333
+          name: p2p
+        - containerPort: 8080
+          name: api-gateway
+        - containerPort: 9090
+          name: telemetry
+        env:
+        - name: SERVICE_NAME
+          value: "metamorph-node"
+        envFrom:
+        - configMapRef:
+            name: metamorph-config
+        - secretRef:
+            name: metamorph-secrets
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9090
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# Service for Metamorph Node
+apiVersion: v1
+kind: Service
+metadata:
+  name: metamorph-service
+  namespace: metamorph-bsv
+  labels:
+    app: metamorph-node
+spec:
+  selector:
+    app: metamorph-node
+  ports:
+  - name: ledger-grpc
+    port: 50051
+    targetPort: 50051
+  - name: engine-grpc
+    port: 50052
+    targetPort: 50052
+  - name: p2p
+    port: 8333
+    targetPort: 8333
+  - name: api-gateway
+    port: 8080
+    targetPort: 8080
+  - name: telemetry
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP
+
+---
+# LoadBalancer for external access
+apiVersion: v1
+kind: Service
+metadata:
+  name: metamorph-loadbalancer
+  namespace: metamorph-bsv
+  annotations:
+    service.beta.kubernetes.io/do-loadbalancer-name: "metamorph-bsv-lb"
+    service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-path: "/health"
+    service.beta.kubernetes.io/do-loadbalancer-healthcheck-port: "9090"
+spec:
+  type: LoadBalancer
+  selector:
+    app: metamorph-node
+  ports:
+  - name: api-gateway
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  - name: p2p
+    port: 8333
+    targetPort: 8333
+    protocol: TCP
+  - name: telemetry
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# HorizontalPodAutoscaler for automatic scaling
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: metamorph-hpa
+  namespace: metamorph-bsv
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: metamorph-node
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# PersistentVolumeClaim for data storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: metamorph-data
+  namespace: metamorph-bsv
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: do-block-storage
+
+---
+# NetworkPolicy for security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metamorph-network-policy
+  namespace: metamorph-bsv
+spec:
+  podSelector:
+    matchLabels:
+      app: metamorph-node
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: metamorph-bsv
+    ports:
+    - protocol: TCP
+      port: 50051
+    - protocol: TCP
+      port: 50052
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 9090
+  - from: []
+    ports:
+    - protocol: TCP
+      port: 8333  # P2P port open to internet
+  egress:
+  - {}  # Allow all outbound traffic

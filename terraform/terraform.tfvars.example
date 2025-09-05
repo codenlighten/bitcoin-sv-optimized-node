@@ -1,0 +1,26 @@
+# Terraform variables for Metamorph Bitcoin SV Node deployment
+# Copy this file to terraform.tfvars and fill in your values
+
+# DigitalOcean API Token (required)
+do_token = "your-digitalocean-token-here"
+
+# Cluster configuration
+cluster_name = "metamorph-bsv-cluster"
+region       = "nyc1"  # Available: nyc1, nyc3, ams3, sgp1, lon1, fra1, tor1, sfo3, blr1, syd1
+
+# Node pool configuration
+node_size = "s-4vcpu-8gb"  # Available: s-2vcpu-2gb, s-2vcpu-4gb, s-4vcpu-8gb, s-8vcpu-16gb
+min_nodes = 3
+max_nodes = 10
+
+# Example configurations for different environments:
+
+# Development environment:
+# node_size = "s-2vcpu-2gb"
+# min_nodes = 1
+# max_nodes = 3
+
+# Production environment:
+# node_size = "s-8vcpu-16gb"
+# min_nodes = 5
+# max_nodes = 20
