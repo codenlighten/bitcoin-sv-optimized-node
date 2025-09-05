@@ -1,5 +1,6 @@
 syntax = "proto3";
 package metamorph.events.v1;
+option go_package = "github.com/codenlighten/bitcoin-sv-optimized-node/gen/events/v1;eventsv1";
 
 message Envelope {
   string msg_id = 1;

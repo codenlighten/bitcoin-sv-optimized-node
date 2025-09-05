@@ -1,6 +1,6 @@
 syntax = "proto3";
 package metamorph.engine.v1;
-option go_package = "github.com/yourorg/metamorph/gen/engine/v1;enginev1";
+option go_package = "github.com/codenlighten/bitcoin-sv-optimized-node/gen/engine/v1;enginev1";
 
 message ExecuteRequest {
   bytes txid = 1;

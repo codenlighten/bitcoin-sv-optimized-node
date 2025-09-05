@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  ledger:
+    build:
+      context: .
+      dockerfile: Dockerfile.ledger
+    ports:
+      - "50051:50051"
+    environment:
+      - SERVICE_NAME=ledger
+      - GRPC_PORT=50051
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.engine
+    ports:
+      - "50052:50052"
+    environment:
+      - SERVICE_NAME=engine
+      - GRPC_PORT=50052
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50052"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  conductor:
+    build:
+      context: .
+      dockerfile: Dockerfile.conductor
+    environment:
+      - SERVICE_NAME=conductor
+      - LEDGER_ADDR=ledger:50051
+      - ENGINE_ADDR=engine:50052
+    depends_on:
+      - ledger
+      - engine
+
+  # Development tools
+  grpcui:
+    image: fullstorydev/grpcui:latest
+    ports:
+      - "8080:8080"
+    command: ["-plaintext", "-bind", "0.0.0.0", "-port", "8080", "ledger:50051"]
+    depends_on:
+      - ledger
+
+networks:
+  default:
+    name: metamorph-network

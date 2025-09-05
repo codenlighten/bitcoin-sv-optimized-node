@@ -1,6 +1,6 @@
 syntax = "proto3";
 package metamorph.ledger.v1;
-option go_package = "github.com/yourorg/metamorph/gen/ledger/v1;ledgerv1";
+option go_package = "github.com/codenlighten/bitcoin-sv-optimized-node/gen/ledger/v1;ledgerv1";
 
 message Outpoint { bytes txid = 1; uint32 vout = 2; }
 message Output {
