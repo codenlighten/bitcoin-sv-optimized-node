@@ -1,35 +1,44 @@
-version: '3.8'
-
 services:
+  # Unified Metamorph Node (All-in-One)
+  metamorph:
+    build:
+      context: .
+      dockerfile: Dockerfile.metamorph
+    ports:
+      - "50051:50051"  # Ledger gRPC
+      - "50052:50052"  # Engine gRPC
+      - "8333:8333"    # P2P Network
+    environment:
+      - SERVICE_NAME=metamorph
+      - NETWORK=main
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "50051"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Individual Services (for development/testing)
   ledger:
     build:
       context: .
       dockerfile: Dockerfile.ledger
     ports:
-      - "50051:50051"
+      - "50061:50051"  # Different port to avoid conflict
     environment:
       - SERVICE_NAME=ledger
       - GRPC_PORT=50051
-    healthcheck:
-      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    profiles: ["individual"]
 
   engine:
     build:
       context: .
       dockerfile: Dockerfile.engine
     ports:
-      - "50052:50052"
+      - "50062:50052"  # Different port to avoid conflict
     environment:
       - SERVICE_NAME=engine
       - GRPC_PORT=50052
-    healthcheck:
-      test: ["CMD", "grpc_health_probe", "-addr=localhost:50052"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    profiles: ["individual"]
 
   conductor:
     build:
@@ -42,15 +51,16 @@ services:
     depends_on:
       - ledger
       - engine
+    profiles: ["individual"]
 
   # Development tools
   grpcui:
     image: fullstorydev/grpcui:latest
     ports:
       - "8080:8080"
-    command: ["-plaintext", "-bind", "0.0.0.0", "-port", "8080", "ledger:50051"]
+    command: ["-plaintext", "-bind", "0.0.0.0", "-port", "8080", "metamorph:50051"]
     depends_on:
-      - ledger
+      - metamorph
 
 networks:
   default:

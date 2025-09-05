@@ -1,0 +1,35 @@
+FROM golang:1.21-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the metamorph application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o /app/bin/metamorph ./cmd/metamorph
+
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy the binary from builder stage
+COPY --from=builder /app/bin/metamorph .
+
+# Expose all service ports
+EXPOSE 50051 50052 8333
+
+# Run the metamorph node
+CMD ["./metamorph"]
