@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ledger
+  namespace: metamorph-data
+spec:
+  serviceName: ledger
+  replicas: 3
+  selector: { matchLabels: { app: ledger } }
+  template:
+    metadata:
+      labels: { app: ledger }
+    spec:
+      containers:
+      - name: ledger
+        image: yourrepo/ledger:0.1.0
+        ports: [{ containerPort: 8443 }]
+        env:
+        - { name: AEROSPIKE_HOSTS, value: "aero-0:3000,aero-1:3000,aero-2:3000" }
+        - { name: TLS_ENABLED, value: "true" }
+        volumeMounts:
+        - { name: data, mountPath: /var/lib/ledger }
+  volumeClaimTemplates:
+  - metadata: { name: data }
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources: { requests: { storage: 200Gi } }

@@ -1,0 +1,37 @@
+syntax = "proto3";
+package metamorph.ledger.v1;
+option go_package = "github.com/yourorg/metamorph/gen/ledger/v1;ledgerv1";
+
+message Outpoint { bytes txid = 1; uint32 vout = 2; }
+message Output {
+  bool is_unspent = 1;
+  uint64 amount_sats = 2;
+  bytes script_pub_key = 3;
+}
+
+message GetOutputsRequest { repeated Outpoint outpoints = 1; }
+message GetOutputsResponse {
+  repeated Output outputs = 1;
+  bytes watermark_tip_hash = 2;
+  uint64 height = 3;
+}
+
+message TxSpend { bytes txid = 1; uint32 vout = 2; }
+message NewOutput { bytes txid = 1; uint32 vout = 2; uint64 amount_sats = 3; bytes script_pub_key = 4; }
+message ApplyBlockRequest {
+  bytes block_hash = 1;
+  uint64 height = 2;
+  repeated TxSpend spends = 3;
+  repeated NewOutput outputs = 4;
+  bytes prev_tip_hash = 5;
+}
+message ApplyBlockResponse { bytes new_tip_hash = 1; uint64 height = 2; }
+
+message HealthRequest {}
+message HealthResponse { string status = 1; }
+
+service Ledger {
+  rpc GetOutputs(GetOutputsRequest) returns (GetOutputsResponse);
+  rpc ApplyBlock(ApplyBlockRequest) returns (ApplyBlockResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}

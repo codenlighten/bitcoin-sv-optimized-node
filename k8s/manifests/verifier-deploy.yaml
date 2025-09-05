@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verifier
+  namespace: metamorph-app
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: verifier } }
+  template:
+    metadata:
+      labels: { app: verifier }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      containers:
+      - name: verifier
+        image: yourrepo/verifier:0.1.0
+        ports: [{ containerPort: 9090 }]
+        env:
+        - { name: BUS_BROKERS, value: "redpanda-0:9092,redpanda-1:9092,redpanda-2:9092" }
+        - { name: TOPIC_RAW_TX, value: "p2p.raw_tx.v1" }
+        - { name: TOPIC_TX_VALIDATED, value: "tx.validated.v1" }
+        - { name: CONSUMER_GROUP, value: "verifier-v1" }
+        resources:
+          requests: { cpu: "2", memory: "2Gi" }
+          limits:   { cpu: "8", memory: "8Gi" }
+        readinessProbe: { httpGet: { path: /healthz, port: 9090 }, periodSeconds: 5 }
+        livenessProbe:  { httpGet: { path: /livez,  port: 9090 }, periodSeconds: 10 }

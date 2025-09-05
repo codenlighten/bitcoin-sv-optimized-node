@@ -1,0 +1,19 @@
+syntax = "proto3";
+package metamorph.events.v1;
+
+message Envelope {
+  string msg_id = 1;
+  string emitted_at = 2;
+  string trace_id = 3;
+  string net = 4;
+  bytes payload = 10;
+}
+
+message RawTx { bytes tx = 1; string peer_id = 2; string seen_at = 3; }
+message TxValidated { bytes txid = 1; uint32 size = 2; uint32 sig_checks = 3; string validated_at = 4; }
+message ExecReq { bytes txid = 1; uint32 vin = 2; bytes script_sig = 3; bytes script_pub_key = 4; uint64 amount_sats = 5; uint32 flags = 6; }
+message ExecRes { bytes txid = 1; uint32 vin = 2; bool ok = 3; string error = 4; uint32 cost_units = 5; uint32 duration_ms = 6; }
+message TxReady { bytes txid = 1; double fee_rate = 2; uint32 ancestors = 3; uint32 weight = 4; string priority = 5; }
+message RawBlock { bytes block = 1; string peer_id = 2; string seen_at = 3; }
+message BlockValidated { bytes block_hash = 1; uint64 height = 2; uint32 tx_count = 3; string validated_at = 4; }
+message ChainTip { bytes tip_hash = 1; uint64 height = 2; }

@@ -1,0 +1,22 @@
+syntax = "proto3";
+package metamorph.engine.v1;
+option go_package = "github.com/yourorg/metamorph/gen/engine/v1;enginev1";
+
+message ExecuteRequest {
+  bytes txid = 1;
+  uint32 vin = 2;
+  bytes script_sig = 3;
+  bytes script_pub_key = 4;
+  uint64 amount_sats = 5;
+  uint32 flags = 6;
+  uint32 cpu_budget_us = 7;
+  uint32 opcount_budget = 8;
+}
+message ExecuteResponse {
+  bool ok = 1;
+  string error = 2;
+  uint32 cost_units = 3;
+  uint32 duration_ms = 4;
+}
+
+service Engine { rpc Execute(ExecuteRequest) returns (ExecuteResponse); }
