@@ -1,0 +1,47 @@
+# Environment files with sensitive data
+.env
+.env.local
+.env.production
+.env.*.local
+
+# DigitalOcean and cloud credentials
+*.token
+credentials/
+secrets/
+
+# Kubernetes config files with sensitive data
+kubeconfig
+*.kubeconfig
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+dist/
+build/
+
+# Go build artifacts
+*.test
+*.out
+vendor/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+deployment-info.txt
