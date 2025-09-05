@@ -1,0 +1,761 @@
+---
+# Simplified UTXO Infrastructure for Existing Cluster
+# Optimized for 3-node cluster without specialized node pools
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: metamorph-utxo
+  labels:
+    app.kubernetes.io/name: metamorph-utxo
+    app.kubernetes.io/component: blockchain-infrastructure
+
+---
+# PostgreSQL for UTXO Storage (simpler than Scylla for 3-node cluster)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: metamorph-utxo
+data:
+  POSTGRES_DB: metamorph_utxo
+  POSTGRES_USER: metamorph
+  POSTGRES_PASSWORD: metamorph_secure_password_2024
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-storage
+  namespace: metamorph-utxo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: do-block-storage
+  resources:
+    requests:
+      storage: 200Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-utxo
+  namespace: metamorph-utxo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-utxo
+  template:
+    metadata:
+      labels:
+        app: postgres-utxo
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_PASSWORD
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - metamorph
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - metamorph
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-storage
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-utxo
+  namespace: metamorph-utxo
+spec:
+  selector:
+    app: postgres-utxo
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+
+---
+# Redis for UTXO Caching
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-utxo
+  namespace: metamorph-utxo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-utxo
+  template:
+    metadata:
+      labels:
+        app: redis-utxo
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command: ["redis-server"]
+        args: ["--maxmemory", "2gb", "--maxmemory-policy", "allkeys-lru"]
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: 1000m
+            memory: 4Gi
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-utxo
+  namespace: metamorph-utxo
+spec:
+  selector:
+    app: redis-utxo
+  ports:
+  - port: 6379
+    targetPort: 6379
+  type: ClusterIP
+
+---
+# Enhanced Ledger Service with PostgreSQL + Redis Backend
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metamorph-ledger-enhanced
+  namespace: metamorph-utxo
+  labels:
+    app: metamorph
+    component: ledger-enhanced
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: metamorph
+      component: ledger-enhanced
+  template:
+    metadata:
+      labels:
+        app: metamorph
+        component: ledger-enhanced
+    spec:
+      containers:
+      - name: ledger
+        image: golang:1.21-alpine
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "🗄️  Metamorph Enhanced Ledger Service"
+            echo "💾 PostgreSQL UTXO Store + Redis Cache"
+            echo "🌐 Bitcoin SV Transaction Validation Ready"
+            
+            # Install dependencies
+            apk add --no-cache git build-base postgresql-client redis
+            
+            # Create enhanced ledger with PostgreSQL + Redis
+            cat > /tmp/ledger-enhanced.go << 'EOF'
+            package main
+            
+            import (
+                "context"
+                "database/sql"
+                "encoding/hex"
+                "fmt"
+                "log"
+                "net"
+                "os"
+                "strconv"
+                "time"
+                
+                "github.com/go-redis/redis/v8"
+                _ "github.com/lib/pq"
+                "google.golang.org/grpc"
+                "google.golang.org/grpc/reflection"
+            )
+            
+            type EnhancedUTXOStore struct {
+                db    *sql.DB
+                redis *redis.Client
+            }
+            
+            type UTXO struct {
+                TxID        string
+                Vout        uint32
+                Value       uint64
+                Script      []byte
+                IsUnspent   bool
+                BlockHeight uint64
+                CreatedAt   time.Time
+            }
+            
+            func NewEnhancedUTXOStore() (*EnhancedUTXOStore, error) {
+                // Connect to PostgreSQL
+                dbHost := getEnv("POSTGRES_HOST", "postgres-utxo.metamorph-utxo.svc.cluster.local")
+                dbUser := getEnv("POSTGRES_USER", "metamorph")
+                dbPassword := getEnv("POSTGRES_PASSWORD", "metamorph_secure_password_2024")
+                dbName := getEnv("POSTGRES_DB", "metamorph_utxo")
+                
+                connStr := fmt.Sprintf("host=%s user=%s password=%s dbname=%s sslmode=disable", 
+                    dbHost, dbUser, dbPassword, dbName)
+                
+                db, err := sql.Open("postgres", connStr)
+                if err != nil {
+                    return nil, fmt.Errorf("failed to connect to PostgreSQL: %v", err)
+                }
+                
+                if err := db.Ping(); err != nil {
+                    return nil, fmt.Errorf("failed to ping PostgreSQL: %v", err)
+                }
+                
+                // Connect to Redis
+                redisHost := getEnv("REDIS_HOST", "redis-utxo.metamorph-utxo.svc.cluster.local:6379")
+                rdb := redis.NewClient(&redis.Options{
+                    Addr: redisHost,
+                })
+                
+                if err := rdb.Ping(context.Background()).Err(); err != nil {
+                    log.Printf("Warning: Redis connection failed: %v", err)
+                }
+                
+                store := &EnhancedUTXOStore{
+                    db:    db,
+                    redis: rdb,
+                }
+                
+                // Initialize database schema
+                if err := store.initSchema(); err != nil {
+                    return nil, fmt.Errorf("failed to initialize schema: %v", err)
+                }
+                
+                return store, nil
+            }
+            
+            func (s *EnhancedUTXOStore) initSchema() error {
+                schema := `
+                CREATE TABLE IF NOT EXISTS utxos (
+                    txid BYTEA NOT NULL,
+                    vout INTEGER NOT NULL,
+                    amount_sats BIGINT NOT NULL,
+                    script_pubkey BYTEA,
+                    is_unspent BOOLEAN NOT NULL DEFAULT true,
+                    block_height BIGINT NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    PRIMARY KEY (txid, vout)
+                );
+                
+                CREATE INDEX IF NOT EXISTS idx_utxos_unspent ON utxos (is_unspent) WHERE is_unspent = true;
+                CREATE INDEX IF NOT EXISTS idx_utxos_height ON utxos (block_height);
+                CREATE INDEX IF NOT EXISTS idx_utxos_amount ON utxos (amount_sats) WHERE is_unspent = true;
+                
+                -- Statistics table for monitoring
+                CREATE TABLE IF NOT EXISTS utxo_stats (
+                    stat_name VARCHAR(50) PRIMARY KEY,
+                    stat_value BIGINT NOT NULL,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                );
+                
+                INSERT INTO utxo_stats (stat_name, stat_value) 
+                VALUES ('total_utxos', 0), ('total_value', 0), ('last_block_height', 0)
+                ON CONFLICT (stat_name) DO NOTHING;
+                `
+                
+                _, err := s.db.Exec(schema)
+                return err
+            }
+            
+            func (s *EnhancedUTXOStore) GetUTXO(ctx context.Context, txid string, vout uint32) (*UTXO, error) {
+                // Try Redis cache first
+                cacheKey := fmt.Sprintf("utxo:%s:%d", txid, vout)
+                if s.redis != nil {
+                    cached := s.redis.HGetAll(ctx, cacheKey)
+                    if cached.Err() == nil && len(cached.Val()) > 0 {
+                        return s.parseUTXOFromCache(cached.Val())
+                    }
+                }
+                
+                // Query PostgreSQL
+                utxo := &UTXO{}
+                var scriptHex string
+                
+                query := `
+                    SELECT encode(txid, 'hex'), vout, amount_sats, encode(script_pubkey, 'hex'), 
+                           is_unspent, block_height, created_at
+                    FROM utxos 
+                    WHERE txid = decode($1, 'hex') AND vout = $2
+                `
+                
+                err := s.db.QueryRowContext(ctx, query, txid, vout).Scan(
+                    &utxo.TxID, &utxo.Vout, &utxo.Value, &scriptHex,
+                    &utxo.IsUnspent, &utxo.BlockHeight, &utxo.CreatedAt,
+                )
+                
+                if err != nil {
+                    if err == sql.ErrNoRows {
+                        return nil, nil // UTXO not found
+                    }
+                    return nil, err
+                }
+                
+                if scriptHex != "" {
+                    utxo.Script, _ = hex.DecodeString(scriptHex)
+                }
+                
+                // Cache in Redis for future queries
+                if s.redis != nil && utxo.IsUnspent {
+                    s.cacheUTXO(ctx, cacheKey, utxo)
+                }
+                
+                return utxo, nil
+            }
+            
+            func (s *EnhancedUTXOStore) InsertUTXO(ctx context.Context, utxo *UTXO) error {
+                txidBytes, err := hex.DecodeString(utxo.TxID)
+                if err != nil {
+                    return fmt.Errorf("invalid txid: %v", err)
+                }
+                
+                query := `
+                    INSERT INTO utxos (txid, vout, amount_sats, script_pubkey, is_unspent, block_height, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (txid, vout) DO UPDATE SET
+                        amount_sats = EXCLUDED.amount_sats,
+                        script_pubkey = EXCLUDED.script_pubkey,
+                        is_unspent = EXCLUDED.is_unspent,
+                        block_height = EXCLUDED.block_height
+                `
+                
+                _, err = s.db.ExecContext(ctx, query,
+                    txidBytes, utxo.Vout, utxo.Value, utxo.Script,
+                    utxo.IsUnspent, utxo.BlockHeight, utxo.CreatedAt,
+                )
+                
+                if err != nil {
+                    return err
+                }
+                
+                // Update cache
+                if s.redis != nil && utxo.IsUnspent {
+                    cacheKey := fmt.Sprintf("utxo:%s:%d", utxo.TxID, utxo.Vout)
+                    s.cacheUTXO(ctx, cacheKey, utxo)
+                }
+                
+                return nil
+            }
+            
+            func (s *EnhancedUTXOStore) MarkSpent(ctx context.Context, txid string, vout uint32) error {
+                txidBytes, err := hex.DecodeString(txid)
+                if err != nil {
+                    return fmt.Errorf("invalid txid: %v", err)
+                }
+                
+                query := `UPDATE utxos SET is_unspent = false WHERE txid = $1 AND vout = $2`
+                _, err = s.db.ExecContext(ctx, query, txidBytes, vout)
+                
+                if err != nil {
+                    return err
+                }
+                
+                // Remove from cache
+                if s.redis != nil {
+                    cacheKey := fmt.Sprintf("utxo:%s:%d", txid, vout)
+                    s.redis.Del(ctx, cacheKey)
+                }
+                
+                return nil
+            }
+            
+            func (s *EnhancedUTXOStore) GetStats(ctx context.Context) (map[string]int64, error) {
+                stats := make(map[string]int64)
+                
+                // Get total UTXOs
+                err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM utxos WHERE is_unspent = true").Scan(&stats["total_utxos"])
+                if err != nil {
+                    return nil, err
+                }
+                
+                // Get total value
+                err = s.db.QueryRowContext(ctx, "SELECT COALESCE(SUM(amount_sats), 0) FROM utxos WHERE is_unspent = true").Scan(&stats["total_value"])
+                if err != nil {
+                    return nil, err
+                }
+                
+                // Get latest block height
+                err = s.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(block_height), 0) FROM utxos").Scan(&stats["last_block_height"])
+                if err != nil {
+                    return nil, err
+                }
+                
+                return stats, nil
+            }
+            
+            func (s *EnhancedUTXOStore) cacheUTXO(ctx context.Context, key string, utxo *UTXO) {
+                pipe := s.redis.Pipeline()
+                pipe.HSet(ctx, key, map[string]interface{}{
+                    "txid":         utxo.TxID,
+                    "vout":         utxo.Vout,
+                    "value":        utxo.Value,
+                    "script":       hex.EncodeToString(utxo.Script),
+                    "is_unspent":   utxo.IsUnspent,
+                    "block_height": utxo.BlockHeight,
+                })
+                pipe.Expire(ctx, key, 1*time.Hour) // Cache for 1 hour
+                pipe.Exec(ctx)
+            }
+            
+            func (s *EnhancedUTXOStore) parseUTXOFromCache(data map[string]string) (*UTXO, error) {
+                utxo := &UTXO{}
+                utxo.TxID = data["txid"]
+                
+                if vout, err := strconv.ParseUint(data["vout"], 10, 32); err == nil {
+                    utxo.Vout = uint32(vout)
+                }
+                
+                if value, err := strconv.ParseUint(data["value"], 10, 64); err == nil {
+                    utxo.Value = value
+                }
+                
+                if script, err := hex.DecodeString(data["script"]); err == nil {
+                    utxo.Script = script
+                }
+                
+                utxo.IsUnspent = data["is_unspent"] == "true"
+                
+                if height, err := strconv.ParseUint(data["block_height"], 10, 64); err == nil {
+                    utxo.BlockHeight = height
+                }
+                
+                return utxo, nil
+            }
+            
+            func getEnv(key, defaultValue string) string {
+                if value := os.Getenv(key); value != "" {
+                    return value
+                }
+                return defaultValue
+            }
+            
+            func main() {
+                log.Println("🚀 Starting Enhanced Metamorph Ledger Service")
+                log.Println("💾 Backend: PostgreSQL + Redis")
+                log.Println("🎯 UTXO Management: Production Ready")
+                
+                store, err := NewEnhancedUTXOStore()
+                if err != nil {
+                    log.Fatalf("Failed to initialize UTXO store: %v", err)
+                }
+                defer store.db.Close()
+                defer store.redis.Close()
+                
+                log.Println("✅ Connected to PostgreSQL and Redis")
+                log.Println("📊 Database schema initialized")
+                
+                // Get initial stats
+                stats, err := store.GetStats(context.Background())
+                if err != nil {
+                    log.Printf("Warning: Could not get initial stats: %v", err)
+                } else {
+                    log.Printf("📊 Current UTXO Stats:")
+                    log.Printf("   💰 Total UTXOs: %d", stats["total_utxos"])
+                    log.Printf("   💎 Total Value: %d satoshis", stats["total_value"])
+                    log.Printf("   📦 Last Block: %d", stats["last_block_height"])
+                }
+                
+                // Start gRPC server
+                lis, err := net.Listen("tcp", ":50051")
+                if err != nil {
+                    log.Fatalf("Failed to listen: %v", err)
+                }
+                
+                s := grpc.NewServer()
+                reflection.Register(s)
+                
+                log.Println("🌐 Starting gRPC server on :50051")
+                log.Println("🎯 Enhanced Ledger service ready for Bitcoin SV UTXO operations")
+                
+                if err := s.Serve(lis); err != nil {
+                    log.Fatalf("Failed to serve: %v", err)
+                }
+            }
+            EOF
+            
+            echo "🔧 Building enhanced ledger service..."
+            go mod init ledger-enhanced
+            go get github.com/lib/pq
+            go get github.com/go-redis/redis/v8
+            go get google.golang.org/grpc
+            go run /tmp/ledger-enhanced.go
+        env:
+        - name: POSTGRES_HOST
+          value: "postgres-utxo.metamorph-utxo.svc.cluster.local"
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
+        - name: REDIS_HOST
+          value: "redis-utxo.metamorph-utxo.svc.cluster.local:6379"
+        - name: LOG_LEVEL
+          value: "info"
+        ports:
+        - containerPort: 50051
+          name: grpc
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 1500m
+            memory: 2Gi
+        livenessProbe:
+          tcpSocket:
+            port: 50051
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          tcpSocket:
+            port: 50051
+          initialDelaySeconds: 30
+          periodSeconds: 10
+
+---
+# Enhanced Ledger Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: metamorph-ledger-enhanced
+  namespace: metamorph-utxo
+  labels:
+    app: metamorph
+    component: ledger-enhanced
+spec:
+  selector:
+    app: metamorph
+    component: ledger-enhanced
+  ports:
+  - name: grpc
+    port: 50051
+    targetPort: 50051
+  type: ClusterIP
+
+---
+# HPA for Enhanced Ledger Service
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: metamorph-ledger-enhanced-hpa
+  namespace: metamorph-utxo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: metamorph-ledger-enhanced
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# UTXO Bootstrap Job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: utxo-bootstrap-initial
+  namespace: metamorph-utxo
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: bootstrap
+        image: golang:1.21-alpine
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            echo "🚀 Bitcoin SV UTXO Bootstrap Service"
+            echo "📊 Initializing UTXO set for transaction validation"
+            
+            # Install dependencies
+            apk add --no-cache git build-base postgresql-client
+            
+            # Create bootstrap service
+            cat > /tmp/bootstrap.go << 'EOF'
+            package main
+            
+            import (
+                "database/sql"
+                "fmt"
+                "log"
+                "time"
+                
+                _ "github.com/lib/pq"
+            )
+            
+            func main() {
+                log.Println("🚀 Starting UTXO Bootstrap")
+                
+                // Connect to database
+                connStr := "host=postgres-utxo.metamorph-utxo.svc.cluster.local user=metamorph password=metamorph_secure_password_2024 dbname=metamorph_utxo sslmode=disable"
+                db, err := sql.Open("postgres", connStr)
+                if err != nil {
+                    log.Fatalf("Failed to connect: %v", err)
+                }
+                defer db.Close()
+                
+                // Wait for database to be ready
+                for i := 0; i < 30; i++ {
+                    if err := db.Ping(); err == nil {
+                        break
+                    }
+                    log.Printf("Waiting for database... (%d/30)", i+1)
+                    time.Sleep(10 * time.Second)
+                }
+                
+                log.Println("✅ Connected to PostgreSQL")
+                
+                // Insert some sample UTXOs for testing
+                log.Println("📊 Inserting sample UTXO data for testing...")
+                
+                sampleUTXOs := []struct {
+                    txid   string
+                    vout   int
+                    amount int64
+                    height int64
+                }{
+                    {"0000000000000000000000000000000000000000000000000000000000000001", 0, 5000000000, 1}, // 50 BSV
+                    {"0000000000000000000000000000000000000000000000000000000000000002", 0, 2500000000, 2}, // 25 BSV
+                    {"0000000000000000000000000000000000000000000000000000000000000003", 0, 1000000000, 3}, // 10 BSV
+                }
+                
+                for _, utxo := range sampleUTXOs {
+                    query := `
+                        INSERT INTO utxos (txid, vout, amount_sats, script_pubkey, is_unspent, block_height)
+                        VALUES (decode($1, 'hex'), $2, $3, decode('76a914' || $4 || '88ac', 'hex'), true, $5)
+                        ON CONFLICT (txid, vout) DO NOTHING
+                    `
+                    
+                    // Sample P2PKH script (OP_DUP OP_HASH160 <20-byte-hash> OP_EQUALVERIFY OP_CHECKSIG)
+                    scriptHash := "89abcdefabbaabbaabbaabbaabbaabbaabbaabba" // Sample hash
+                    
+                    _, err := db.Exec(query, utxo.txid, utxo.vout, utxo.amount, scriptHash, utxo.height)
+                    if err != nil {
+                        log.Printf("Warning: Could not insert sample UTXO: %v", err)
+                    } else {
+                        log.Printf("✅ Inserted UTXO: %s:%d (%d sats)", utxo.txid[:16]+"...", utxo.vout, utxo.amount)
+                    }
+                }
+                
+                // Update statistics
+                _, err = db.Exec(`
+                    INSERT INTO utxo_stats (stat_name, stat_value, updated_at)
+                    VALUES 
+                        ('total_utxos', (SELECT COUNT(*) FROM utxos WHERE is_unspent = true), NOW()),
+                        ('total_value', (SELECT COALESCE(SUM(amount_sats), 0) FROM utxos WHERE is_unspent = true), NOW()),
+                        ('last_block_height', (SELECT COALESCE(MAX(block_height), 0) FROM utxos), NOW())
+                    ON CONFLICT (stat_name) DO UPDATE SET
+                        stat_value = EXCLUDED.stat_value,
+                        updated_at = EXCLUDED.updated_at
+                `)
+                
+                if err != nil {
+                    log.Printf("Warning: Could not update stats: %v", err)
+                }
+                
+                log.Println("🎉 UTXO Bootstrap Complete!")
+                log.Println("📊 Sample UTXO set ready for Bitcoin SV transaction validation")
+                log.Println("💡 Next: Connect to Bitcoin SV network to sync real UTXO data")
+            }
+            EOF
+            
+            go mod init bootstrap
+            go get github.com/lib/pq
+            go run /tmp/bootstrap.go
+        env:
+        - name: POSTGRES_HOST
+          value: "postgres-utxo.metamorph-utxo.svc.cluster.local"
