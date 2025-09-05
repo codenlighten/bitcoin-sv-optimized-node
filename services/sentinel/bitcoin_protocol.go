@@ -9,7 +9,13 @@ import (
 	"io"
 	"net"
 	"time"
+
 )
+
+// EventBus interface for event publishing
+type EventBus interface {
+	Publish(topic string, data interface{}) error
+}
 
 // Bitcoin SV Protocol Implementation
 // Replaces the simulation with real Bitcoin P2P networking

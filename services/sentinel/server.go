@@ -4,60 +4,28 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"log"
-	"net"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/codenlighten/bitcoin-sv-optimized-node/services/events"
-	eventsv1 "github.com/codenlighten/bitcoin-sv-optimized-node/gen/events/v1"
 )
 
-// Peer represents a connected Bitcoin SV peer
-type Peer struct {
-	ID       string
-	Conn     net.Conn
-	Address  string
-	Version  uint32
-	Services uint64
-	LastSeen time.Time
-}
 
-// BitcoinProtocol represents the Bitcoin SV P2P protocol implementation
-type BitcoinProtocol struct {
-	peers map[string]*Peer
-}
-
-// NewBitcoinProtocol creates a new Bitcoin SV P2P protocol instance
-func NewBitcoinProtocol(network string, eventBus events.EventBus) *BitcoinProtocol {
-	return &BitcoinProtocol{
-		peers: make(map[string]*Peer),
-	}
-}
-
-// ConnectToPeers connects to Bitcoin SV network peers
-func (b *BitcoinProtocol) ConnectToPeers() error {
-	// Use the full implementation from bitcoin_protocol.go
-	// This is a placeholder that will be replaced with the full protocol
-	log.Println("🔗 Connecting to Bitcoin SV network peers...")
-	return nil
-}
 
 // SentinelServer implements the Sentinel P2P networking service
 // Handles real Bitcoin SV P2P connections, message routing, and network health
 type SentinelServer struct {
 	mu            sync.RWMutex
 	bitcoinProto  *BitcoinProtocol
-	eventBus      events.EventBus
+	eventBus      EventBus
 	ctx           context.Context
 	cancel        context.CancelFunc
 	network       string
 }
 
 // NewSentinelServer creates a new Sentinel P2P service with real Bitcoin protocol
-func NewSentinelServer(eventBus events.EventBus) *SentinelServer {
+func NewSentinelServer(eventBus EventBus) *SentinelServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	// Determine network from environment (default to testnet for safety)
@@ -123,7 +91,6 @@ func (s *SentinelServer) managePeers() {
 			})
 		}
 	}
-}
 }
 
 // monitorHealth monitors the health of the Bitcoin SV P2P service

@@ -2,16 +2,20 @@ package verifier
 
 import (
 	"context"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"fmt"
 	"log"
-	"math/rand"
+	mathrand "math/rand"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/codenlighten/bitcoin-sv-optimized-node/services/events"
 )
+
+// EventBus interface for event publishing
+type EventBus interface {
+	Publish(topic string, data interface{}) error
+}
 
 // VerifierServer implements real Bitcoin SV transaction validation
 // Validates transactions against Bitcoin SV consensus rules
@@ -21,7 +25,7 @@ type VerifierServer struct {
 	successRate     float64
 	bitcoinValidator *BitcoinValidator
 	utxoCache       map[string]*UTXO
-	eventBus        events.EventBus
+	eventBus        EventBus
 	ctx             context.Context
 	cancel          context.CancelFunc
 	network         string
@@ -31,22 +35,17 @@ type VerifierServer struct {
 type Transaction struct {
 	Txid     []byte
 	Version  uint32
-	Inputs   []bitcoin.TxInput
-	Outputs  []bitcoin.TxOutput
+	Inputs   []TxInput
+	Outputs  []TxOutput
 	LockTime uint32
 	Size     uint32
 }
 
-// ValidationResult represents the outcome of transaction validation
-type ValidationResult struct {
-	Valid       bool
-	Error       string
-	SigChecks   uint32
-	Size        uint32
-	ProcessTime time.Duration
-}
 
-func NewVerifierServer(eventBus events.EventBus) *VerifierServer {
+
+
+
+func NewVerifierServer(eventBus EventBus) *VerifierServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	// Determine network from environment
@@ -123,7 +122,7 @@ func (v *VerifierServer) processRealTransaction() {
 	
 	// Create validation result event
 	eventData := map[string]interface{}{
-		"tx_id":       fmt.Sprintf("tx_%d_%d", time.Now().Unix(), rand.Intn(10000)),
+		"tx_id":       fmt.Sprintf("tx_%d_%d", time.Now().Unix(), mathrand.Intn(10000)),
 		"valid":       result.Valid,
 		"error_code":  result.ErrorCode,
 		"error_msg":   result.ErrorMsg,
@@ -160,7 +159,7 @@ func (v *VerifierServer) createSampleTransaction() []byte {
 	
 	// Input: Previous transaction hash (32 bytes)
 	prevTxHash := make([]byte, 32)
-	rand.Read(prevTxHash)
+	cryptorand.Read(prevTxHash)
 	txData = append(txData, prevTxHash...)
 	
 	// Input: Previous output index (4 bytes)
@@ -176,7 +175,7 @@ func (v *VerifierServer) createSampleTransaction() []byte {
 	txData = append(txData, 0x01)
 	
 	// Output: Value (8 bytes, 50 BSV in satoshis)
-	txData = append(txData, 0x00, 0x286b, 0xee, 0x01, 0x00, 0x00, 0x00, 0x00)
+	txData = append(txData, 0x00, 0x6b, 0x28, 0x01, 0x00, 0x00, 0x00, 0x00)
 	
 	// Output: Script length (25 bytes for P2PKH)
 	txData = append(txData, 0x19)
@@ -184,7 +183,7 @@ func (v *VerifierServer) createSampleTransaction() []byte {
 	// Output: P2PKH script (OP_DUP OP_HASH160 <20-byte-hash> OP_EQUALVERIFY OP_CHECKSIG)
 	p2pkhScript := []byte{0x76, 0xa9, 0x14}
 	hash160 := make([]byte, 20)
-	rand.Read(hash160)
+	cryptorand.Read(hash160)
 	p2pkhScript = append(p2pkhScript, hash160...)
 	p2pkhScript = append(p2pkhScript, 0x88, 0xac)
 	txData = append(txData, p2pkhScript...)
@@ -234,15 +233,15 @@ func (v *VerifierServer) populateSampleUTXOs() {
 	// Add some sample UTXOs for transaction validation testing
 	for i := 0; i < 10; i++ {
 		txHash := make([]byte, 32)
-		rand.Read(txHash)
+		cryptorand.Read(txHash)
 		
 		utxoKey := fmt.Sprintf("%x:%d", txHash, 0)
 		v.utxoCache[utxoKey] = &UTXO{
 			TxHash:      txHash,
 			Index:       0,
-			Value:       int64(1000000000 + rand.Intn(9000000000)), // 10-100 BSV
+			Value:       int64(1000000000 + mathrand.Intn(9000000000)), // 10-100 BSV
 			ScriptPubKey: v.createP2PKHScript(),
-			BlockHeight: int32(700000 + rand.Intn(50000)),
+			BlockHeight: int32(700000 + mathrand.Intn(50000)),
 			Spent:       false,
 		}
 	}
@@ -255,7 +254,7 @@ func (v *VerifierServer) createP2PKHScript() []byte {
 	// Standard P2PKH script: OP_DUP OP_HASH160 <20-byte-hash> OP_EQUALVERIFY OP_CHECKSIG
 	script := []byte{0x76, 0xa9, 0x14} // OP_DUP OP_HASH160 PUSH(20)
 	hash160 := make([]byte, 20)
-	rand.Read(hash160)
+	cryptorand.Read(hash160)
 	script = append(script, hash160...)
 	script = append(script, 0x88, 0xac) // OP_EQUALVERIFY OP_CHECKSIG
 	return script
