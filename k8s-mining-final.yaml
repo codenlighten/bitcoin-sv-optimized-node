@@ -1,0 +1,165 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metamorph-mining-config
+  namespace: metamorph-bsv
+data:
+  BITCOIN_LIVE_MODE: "true"
+  BITCOIN_NETWORK: "testnet"
+  BITCOIN_MAX_WORKERS: "8"
+  BITCOIN_MIN_WORKERS: "2"
+  BITCOIN_MAX_PEERS: "16"
+  BITCOIN_MIN_PEERS: "8"
+  LOG_LEVEL: "info"
+  ENABLE_METRICS: "true"
+  METRICS_PORT: "9090"
+  PORTAL_PORT: "8080"
+  LEDGER_GRPC_PORT: "50051"
+  ENGINE_GRPC_PORT: "50052"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: metamorph-mining-secrets
+  namespace: metamorph-bsv
+type: Opaque
+stringData:
+  BITCOIN_MINING_ADDRESS: "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
+  BITCOIN_POOL_URL: ""
+  BITCOIN_POOL_USERNAME: ""
+  BITCOIN_POOL_PASSWORD: ""
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metamorph-mining-node
+  namespace: metamorph-bsv
+  labels:
+    app: metamorph
+    component: mining-node
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: metamorph
+      component: mining-node
+  template:
+    metadata:
+      labels:
+        app: metamorph
+        component: mining-node
+    spec:
+      containers:
+      - name: mining-node
+        image: golang:1.21-alpine
+        command: ["/bin/sh"]
+        args:
+          - -c
+          - |
+            apk add --no-cache git build-base
+            echo "🚀 Cloning Metamorph Bitcoin SV Node..."
+            git clone https://github.com/codenlighten/bitcoin-sv-optimized-node.git /app
+            cd /app
+            
+            echo "🔧 Fixing Go module dependencies..."
+            # Clean and rebuild go.mod/go.sum to fix checksum issues
+            rm -f go.sum
+            go mod tidy
+            
+            echo "🚀 Starting Metamorph Bitcoin SV Mining Node..."
+            echo "⚙️  Configuration: LIVE_MODE=$BITCOIN_LIVE_MODE, NETWORK=$BITCOIN_NETWORK"
+            echo "⛏️  Mining Workers: $BITCOIN_MAX_WORKERS"
+            echo "🌐 Network Peers: $BITCOIN_MAX_PEERS"
+            echo "📊 External IP: 178.128.134.166"
+            echo ""
+            
+            # Start the mining demo
+            go run ./cmd/mining-demo/main.go
+        envFrom:
+        - configMapRef:
+            name: metamorph-mining-config
+        - secretRef:
+            name: metamorph-mining-secrets
+        ports:
+        - containerPort: 8080
+          name: portal
+        - containerPort: 9090
+          name: metrics
+        - containerPort: 50051
+          name: ledger-grpc
+        - containerPort: 50052
+          name: engine-grpc
+        - containerPort: 8333
+          name: bitcoin-p2p
+        resources:
+          requests:
+            cpu: 1000m
+            memory: 2Gi
+          limits:
+            cpu: 4000m
+            memory: 8Gi
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "ps aux | grep -v grep | grep mining-demo"
+          initialDelaySeconds: 120
+          periodSeconds: 30
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - "ps aux | grep -v grep | grep mining-demo"
+          initialDelaySeconds: 60
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metamorph-mining-service
+  namespace: metamorph-bsv
+  labels:
+    app: metamorph
+    component: mining
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: portal
+  - port: 9090
+    targetPort: 9090
+    name: metrics
+  - port: 50051
+    targetPort: 50051
+    name: ledger-grpc
+  - port: 50052
+    targetPort: 50052
+    name: engine-grpc
+  - port: 8333
+    targetPort: 8333
+    name: bitcoin-p2p
+  selector:
+    app: metamorph
+    component: mining-node
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: metamorph-mining-hpa
+  namespace: metamorph-bsv
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: metamorph-mining-node
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
