@@ -1,0 +1,26 @@
+FROM golang:1.21-alpine AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Initialize go module for demo
+RUN go mod init metamorph-demo
+
+# Copy demo source
+COPY cmd/demo/main.go ./cmd/demo/
+
+# Build the demo application (no external dependencies)
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/bin/demo ./cmd/demo
+
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# Copy the binary from builder stage
+COPY --from=builder /app/bin/demo .
+
+# Run the demo
+CMD ["./demo"]
